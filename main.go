@@ -8,6 +8,7 @@ import (
 	"math/rand"
 	"net/http"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -203,24 +204,31 @@ func process() {
 
 func Pusher_Push(product_val ProductPrice) {
 	new_product_name := strings.TrimSpace(product_val.ProductName)
-	new_product_name = strings.ReplaceAll(new_product_name, " ", "_")
-	new_product_name = strings.ReplaceAll(new_product_name, ",", "")
-	new_product_name = strings.ReplaceAll(new_product_name, "(", "")
-	new_product_name = strings.ReplaceAll(new_product_name, ")", "")
+	reg, err := regexp.Compile("[^a-zA-Z0-9]+")
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+	new_product_name = reg.ReplaceAllString(new_product_name, "")
+
+	if len(new_product_name) > 50 {
+		new_product_name = new_product_name[:50]
+		new_product_name = strings.Trim(new_product_name, "_")
+	}
 
 	completionTime := prometheus.NewGauge(prometheus.GaugeOpts{
 		Namespace: product_val.Website,
-		Subsystem: fmt.Sprintf("db_%s_%s_info", product_val.Website, GetMD5Hash(product_val.ProductName)),
+		Subsystem: fmt.Sprintf("db_%s_%s_info", product_val.Website, new_product_name),
 		Name:      fmt.Sprintf("db_%s_info", product_val.Website),
 		Help:      fmt.Sprintf("Price of product %s.", product_val.ProductName),
 	})
 	prometheus.MustRegister(completionTime)
 	completionTime.Set(product_val.PrductPrice)
-	if err := push.New("http://192.168.0.101:9091/", "amazon_product_price").
+	if err := push.New("http://192.168.0.101:9091/", fmt.Sprintf("%s_product_price", product_val.Website)).
 		Collector(completionTime).
 		Grouping(product_val.Website, new_product_name).
 		Push(); err != nil {
-		log.Println("Could not push completion time to Pushgateway:", err)
+		log.Error("Could not push completion time to Pushgateway:", err)
 	}
 }
 func main() {
